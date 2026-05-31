@@ -1,7 +1,7 @@
 #!/bin/sh
 ###################################################
-# GlobalTranslatePro Plugin Installer for Enigma2
-# Version: 6.5
+# ip2SatUltraMod Plugin Installer for Enigma2
+# Version: 2.0
 # Author: HAMDY_AHMED
 # Improved: Auto-restart after plugin installation
 ###################################################
@@ -17,9 +17,9 @@ WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
 # Script configuration
-PLUGIN_NAME="ip2Sat Ultra Mod"
+PLUGIN_NAME="ip2Sat"
 VERSION="2.0"
-GITHUB_RAW="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main"
+GITHUB_RAW="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main/iptoSat-v2.0"
 # Try different possible package names
 PACKAGE_NAMES="${PLUGIN_NAME}-${VERSION}.tar.gz ${PLUGIN_NAME}.tar.gz ${PLUGIN_NAME}_${VERSION}.tar.gz plugin.tar.gz"
 TEMP_DIR="/var/volatile/tmp"
