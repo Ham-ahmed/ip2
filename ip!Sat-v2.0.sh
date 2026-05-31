@@ -1,10 +1,9 @@
 #!/bin/sh
-###################################################
-# ip2SatUltraMod Plugin Installer for Enigma2
-# Version: 2.0
-# Author: HAMDY_AHMED
-# Improved: Auto-restart after plugin installation
-###################################################
+
+# ============================================================
+# Script: IP2SAT Ultra Mod Installer
+# Purpose: Install/Update IP2SAT plugin for Enigma2
+# ============================================================
 
 # Color definitions
 RED='\033[0;31m'
@@ -16,520 +15,300 @@ MAGENTA='\033[0;35m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
-# Script configuration
-PLUGIN_NAME="ip2Sat"
-VERSION="2.0"
-GITHUB_RAW="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main/iptosat"
-# Try different possible package names
-PACKAGE_NAMES="${PLUGIN_NAME}-${VERSION}.tar.gz ${PLUGIN_NAME}.tar.gz ${PLUGIN_NAME}_${VERSION}.tar.gz plugin.tar.gz"
-TEMP_DIR="/var/volatile/tmp"
-INSTALL_LOG="${TEMP_DIR}/${PLUGIN_NAME}_install.log"
-ENIGMA2_PLUGINS_DIR="/usr/lib/enigma2/python/Plugins/Extensions"
-PLUGIN_DIR="${ENIGMA2_PLUGINS_DIR}/${PLUGIN_NAME}"
-BACKUP_DIR="${TEMP_DIR}/${PLUGIN_NAME}_backup"
+# Configuration
+#########################################
+plugin="IP2SATUltraMod"
+git_url="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main/iptosat"
+plugin_path="/usr/lib/enigma2/python/Plugins/Extensions/IP2SAT"
+package="enigma2-plugin-extensions-$plugin"
+targz_file="$plugin.tar.gz"
+temp_dir="/tmp"
+backup_dir="/tmp/ip2sat_backup"
 
-# =======================================
-# Function: Cleanup temporary files
-# =======================================
-cleanup() {
-    echo -e "${BLUE}▶ Cleaning up temporary files...${NC}"
-    # Remove downloaded packages
-    for pkg in ${PACKAGE_NAMES}; do
-        rm -f "${TEMP_DIR}/${pkg}" 2>/dev/null
-    done
-    
-    # Remove extracted files
-    rm -f "${TEMP_DIR}"/*.ipk "${TEMP_DIR}"/*.tar.gz 2>/dev/null
-    rm -rf ./CONTROL ./control ./postinst ./preinst ./prerm ./postrm 2>/dev/null
-    rm -f "${INSTALL_LOG}" 2>/dev/null
-    echo -e "${GREEN}✓ Cleanup completed${NC}"
+# Determine package manager
+#########################################
+if command -v dpkg &> /dev/null; then
+    package_manager="apt"
+    status_file="/var/lib/dpkg/status"
+    uninstall_command="apt-get purge --auto-remove -y"
+else
+    package_manager="opkg"
+    status_file="/var/lib/opkg/status"
+    uninstall_command="opkg remove --force-depends"
+fi
+
+# Function: Print colored messages
+#########################################
+print_message() {
+    echo -e "${GREEN}[$(date +'%H:%M:%S')]${NC} $1"
 }
 
-# ============================
-# Function: Print banner
-# ============================
-print_banner() {
-    clear
-    echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-    echo -e "${WHITE}   ${PLUGIN_NAME} Plugin Installer v${VERSION}     ${NC}"
-    echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-    echo -e "${WHITE}             Developer: HAMDY_AHMED                ${NC}"
-    echo -e "${CYAN}══════=═════════════════════════════════════════════${NC}"
-    echo ""
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# ===========================================
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_info() {
+    echo -e "${CYAN}[INFO]${NC} $1"
+}
+
 # Function: Check internet connectivity
-# ==========================================
+#########################################
 check_internet() {
-    echo -e "${BLUE}▶ Checking internet connection...${NC}"
-    
-    local connected=false
-    local test_urls="https://github.com https://raw.githubusercontent.com https://google.com"
-    
-    for url in $test_urls; do
-        if [ "${DOWNLOADER}" = "wget" ]; then
-            if wget --spider --timeout=5 -q "$url" 2>/dev/null; then
-                connected=true
-                echo -e "${GREEN}✓ Internet connection OK ($url reachable)${NC}"
-                break
-            fi
-        elif [ "${DOWNLOADER}" = "curl" ]; then
-            if curl -s --head --connect-timeout 5 "$url" >/dev/null 2>&1; then
-                connected=true
-                echo -e "${GREEN}✓ Internet connection OK ($url reachable)${NC}"
-                break
-            fi
-        fi
-    done
-    
-    if [ "$connected" = false ]; then
-        echo -e "${RED}✗ No internet connection detected${NC}"
-        echo -e "${YELLOW}  Please check your network settings and try again${NC}"
-        exit 1
-    fi
-}
-
-# =======================================
-# Function: Check system requirements
-# ======================================
-check_requirements() {
-    echo -e "${BLUE}▶ Checking system requirements...${NC}"
-    
-    # Check if running as root
-    if [ "$(id -u)" -ne 0 ]; then
-        echo -e "${RED}✗ This script must be run as root${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓ Root privileges OK${NC}"
-    
-    # Check Enigma2 environment
-    if [ ! -d "/usr/lib/enigma2" ]; then
-        echo -e "${YELLOW}⚠ Warning: This doesn't appear to be an Enigma2 device${NC}"
-        echo -e "${YELLOW}  Installation may fail${NC}"
-        sleep 2
+    print_info "Checking internet connection..."
+    if wget -q --spider http://google.com 2>/dev/null; then
+        print_message "Internet connection OK"
+        return 0
     else
-        echo -e "${GREEN}✓ Enigma2 environment detected${NC}"
+        print_error "No internet connection"
+        return 1
     fi
-    
-    # Check available disk space (need at least 10MB)
-    AVAILABLE_SPACE=$(df /usr | awk 'NR==2 {print $4}')
-    if [ "${AVAILABLE_SPACE}" -lt 10240 ]; then
-        echo -e "${RED}✗ Insufficient disk space. Need at least 10MB${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓ Sufficient disk space available${NC}"
-    
-    # Check for required download tools
-    if command -v wget >/dev/null 2>&1; then
-        DOWNLOADER="wget"
-        echo -e "${GREEN}✓ Using wget for download${NC}"
-    elif command -v curl >/dev/null 2>&1; then
-        DOWNLOADER="curl"
-        echo -e "${GREEN}✓ Using curl for download${NC}"
-    else
-        echo -e "${RED}✗ Neither wget nor curl found. Please install one.${NC}"
-        exit 1
-    fi
-    
-    # Check internet connectivity
-    check_internet
 }
 
-# =============================================
-# Function: Find and download package
-# =============================================
-find_and_download_package() {
-    echo -e "${BLUE}▶ Searching for ${PLUGIN_NAME} package...${NC}"
-    
-    local downloaded=false
-    local package_found=""
-    
-    # Try different package names
-    for pkg_name in ${PACKAGE_NAMES}; do
-        local pkg_url="${GITHUB_RAW}/${pkg_name}"
-        local pkg_path="${TEMP_DIR}/${pkg_name}"
-        
-        echo -e "${YELLOW}  Trying: ${pkg_name}${NC}"
-        
-        # Check if URL exists
-        if [ "${DOWNLOADER}" = "wget" ]; then
-            if wget --spider --timeout=5 -q "${pkg_url}" 2>/dev/null; then
-                package_found="${pkg_name}"
-                echo -e "${GREEN}  ✓ Package found: ${pkg_name}${NC}"
-                
-                echo -e "${YELLOW}  Downloading...${NC}"
-                wget --no-check-certificate \
-                     --timeout=20 \
-                     --tries=3 \
-                     --show-progress \
-                     -O "${pkg_path}" \
-                     "${pkg_url}" 2>&1
-                
-                if [ $? -eq 0 ] && [ -s "${pkg_path}" ]; then
-                    downloaded=true
-                    PACKAGE="${pkg_path}"
-                    break
-                fi
-            fi
-        elif [ "${DOWNLOADER}" = "curl" ]; then
-            if curl -s --head --connect-timeout 5 "${pkg_url}" | grep -q "200 OK"; then
-                package_found="${pkg_name}"
-                echo -e "${GREEN}  ✓ Package found: ${pkg_name}${NC}"
-                
-                echo -e "${YELLOW}  Downloading...${NC}"
-                curl -# -L -k --connect-timeout 20 --retry 3 -o "${pkg_path}" "${pkg_url}"
-                
-                if [ $? -eq 0 ] && [ -s "${pkg_path}" ]; then
-                    downloaded=true
-                    PACKAGE="${pkg_path}"
-                    break
-                fi
-            fi
+# Function: Get version from remote
+#########################################
+get_remote_version() {
+    local remote_version=$(wget "$git_url/version" -qO- 2>/dev/null | head -1 | tr -d '\n\r')
+    if [ -z "$remote_version" ]; then
+        print_error "Failed to get version from remote repository"
+        return 1
+    fi
+    echo "$remote_version"
+    return 0
+}
+
+# Function: Create backup of existing plugin
+#########################################
+create_backup() {
+    if [ -d "$plugin_path" ]; then
+        print_info "Creating backup of existing plugin..."
+        rm -rf "$backup_dir" 2>/dev/null
+        cp -r "$plugin_path" "$backup_dir" 2>/dev/null
+        if [ -d "$backup_dir" ]; then
+            print_message "Backup created successfully"
+            return 0
+        else
+            print_warning "Failed to create backup"
+            return 1
         fi
-    done
-    
-    if [ "$downloaded" = false ]; then
-        echo -e "${RED}✗ Could not find any package${NC}"
-        echo -e "${YELLOW}  Tried names: ${PACKAGE_NAMES}${NC}"
-        exit 1
     fi
-    
-    echo -e "${GREEN}✓ Download completed successfully${NC}"
-    echo -e "  📦 Package: $(basename ${PACKAGE})"
-    echo -e "  📊 Size: $(du -h ${PACKAGE} | cut -f1)"
+    return 0
 }
 
-# ==============================
+# Function: Restore backup
+#########################################
+restore_backup() {
+    if [ -d "$backup_dir" ]; then
+        print_warning "Restoring from backup..."
+        rm -rf "$plugin_path" 2>/dev/null
+        cp -r "$backup_dir" "$plugin_path" 2>/dev/null
+        print_message "Backup restored"
+    fi
+}
+
 # Function: Remove old version
-# ==============================
+#########################################
 remove_old_version() {
-    echo -e "${BLUE}▶ Checking for previous installation...${NC}"
-    
-    # Check multiple possible locations
-    local old_locations="
-        ${PLUGIN_DIR}
-        /usr/lib/enigma2/python/Plugins/Extensions/${PLUGIN_NAME}
-        /home/root/${PLUGIN_NAME}
-        /usr/share/enigma2/${PLUGIN_NAME}
-    "
-    
-    local found=false
-    
-    for loc in $old_locations; do
-        if [ -d "$loc" ]; then
-            echo -e "${YELLOW}  Found previous installation at: ${loc}${NC}"
-            found=true
-            
-            # Backup configuration if exists
-            if [ -f "${loc}/etc/config.xml" ] || [ -f "${loc}/config.xml" ]; then
-                echo -e "${BLUE}  Backing up configuration...${NC}"
-                mkdir -p "${BACKUP_DIR}"
-                
-                # Try to find config files
-                find "${loc}" -name "*.xml" -o -name "*.conf" -o -name "config.*" 2>/dev/null | while read -r cfg; do
-                    rel_path="${cfg#$loc/}"
-                    cfg_dir=$(dirname "${rel_path}")
-                    mkdir -p "${BACKUP_DIR}/${cfg_dir}"
-                    cp -f "$cfg" "${BACKUP_DIR}/${cfg_dir}/" 2>/dev/null
-                    echo -e "    Backed up: ${rel_path}"
-                done
-                
-                echo -e "${GREEN}  ✓ Configuration backed up to ${BACKUP_DIR}${NC}"
-            fi
-            
-            # Remove old version
-            echo -e "${BLUE}  Removing old version...${NC}"
-            rm -rf "$loc"
-            
-            if [ $? -eq 0 ]; then
-                echo -e "${GREEN}  ✓ Removed: ${loc}${NC}"
-            else
-                echo -e "${RED}  ✗ Failed to remove: ${loc}${NC}"
-            fi
+    if [ -d "$plugin_path" ]; then
+        print_info "Removing old plugin version..."
+        sleep 1
+        
+        # Remove plugin directory
+        rm -rf "$plugin_path" 2>/dev/null
+        
+        # Remove package from package manager if exists
+        if grep -q "$package" "$status_file" 2>/dev/null; then
+            print_info "Removing existing package: $package"
+            $uninstall_command "$package" > /dev/null 2>&1
         fi
-    done
-    
-    if [ "$found" = false ]; then
-        echo -e "${GREEN}✓ No previous installation found${NC}"
+        
+        # Clear Python cache
+        find /usr/lib/enigma2/python/Plugins/Extensions -name "*.pyc" -delete 2>/dev/null
+        find /usr/lib/enigma2/python/Plugins/Extensions -name "*.pyo" -delete 2>/dev/null
+        
+        print_message "Old version removed successfully"
+        sleep 1
+    else
+        print_info "No previous installation found"
     fi
 }
 
-# ==============================
-# Function: Install package
-# ==============================
-install_package() {
-    echo -e "${BLUE}▶ Installing ${PLUGIN_NAME}...${NC}"
+# Function: Download and install plugin
+#########################################
+download_and_install() {
+    local version=$1
+    local url="$git_url/$targz_file"
     
-    # Remove any old version
+    print_info "Downloading $plugin version $version..."
+    sleep 1
+    
+    # Download with progress and timeout
+    if wget --timeout=30 --tries=3 --show-progress -qO "$temp_dir/$targz_file" --no-check-certificate "$url"; then
+        print_message "Download completed successfully"
+    else
+        print_error "Download failed"
+        return 1
+    fi
+    
+    # Verify downloaded file is not empty
+    if [ ! -s "$temp_dir/$targz_file" ]; then
+        print_error "Downloaded file is empty"
+        return 1
+    fi
+    
+    # Verify tar.gz integrity
+    print_info "Verifying archive integrity..."
+    if gunzip -t "$temp_dir/$targz_file" 2>/dev/null; then
+        print_message "Archive integrity verified"
+    else
+        print_error "Archive is corrupted"
+        rm -f "$temp_dir/$targz_file"
+        return 1
+    fi
+    
+    # Extract archive
+    print_info "Extracting archive..."
+    if tar -xzf "$temp_dir/$targz_file" -C / 2>/dev/null; then
+        print_message "Extraction completed successfully"
+    else
+        print_error "Extraction failed"
+        rm -f "$temp_dir/$targz_file"
+        return 1
+    fi
+    
+    # Clean up temp file
+    rm -f "$temp_dir/$targz_file"
+    
+    return 0
+}
+
+# Function: Verify installation
+#########################################
+verify_installation() {
+    print_info "Verifying installation..."
+    
+    if [ -d "$plugin_path" ]; then
+        # Check for main plugin file
+        if [ -f "$plugin_path/plugin.py" ] || [ -f "$plugin_path/__init__.py" ]; then
+            print_message "Plugin files verified successfully"
+            return 0
+        else
+            print_error "Plugin files missing after installation"
+            return 1
+        fi
+    else
+        print_error "Plugin directory not found after installation"
+        return 1
+    fi
+}
+
+# Function: Cleanup temporary files
+#########################################
+cleanup() {
+    # Remove temporary files
+    rm -f /tmp/*.ipk /tmp/*.tar.gz /tmp/*.deb 2>/dev/null
+    rm -f /CONTROL /control /postinst /preinst /prerm /postrm 2>/dev/null
+    rm -rf /tmp/ip2sat_* 2>/dev/null
+    
+    # Remove backup if installation succeeded
+    if [ -f "/tmp/install_success" ]; then
+        rm -rf "$backup_dir" 2>/dev/null
+        rm -f "/tmp/install_success"
+    fi
+    
+    # Clear Python cache
+    find /usr/lib/enigma2/python/Plugins/Extensions -name "*.pyc" -delete 2>/dev/null
+    find /usr/lib/enigma2/python/Plugins/Extensions -name "*.pyo" -delete 2>/dev/null
+}
+
+# Function: Restart Enigma2 GUI
+#########################################
+restart_gui() {
+    print_info "Do you want to restart Enigma2 GUI? (y/n)"
+    echo -e -n "${CYAN}Restart? [y/N]: ${NC}"
+    read -r answer
+    
+    case "$answer" in
+        y|Y|yes|YES)
+            print_info "Restarting Enigma2 GUI..."
+            sleep 2
+            killall -9 enigma2 2>/dev/null
+            ;;
+        *)
+            print_warning "Please restart Enigma2 manually to use the plugin"
+            ;;
+    esac
+}
+
+# ============================================================
+# Main Execution
+# ============================================================
+main() {
+    clear 2>/dev/null
+    echo ""
+    echo -e "${MAGENTA}╔════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║     $plugin Installer v1.0      ║${NC}"
+    echo -e "${MAGENTA}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Check internet
+    if ! check_internet; then
+        exit 1
+    fi
+    
+    # Get remote version
+    remote_version=$(get_remote_version)
+    if [ -z "$remote_version" ]; then
+        exit 1
+    fi
+    print_info "Remote version: $remote_version"
+    
+    # Create backup
+    create_backup
+    
+    # Remove old version
     remove_old_version
     
-    # Create plugin directory if it doesn't exist
-    mkdir -p "${ENIGMA2_PLUGINS_DIR}"
-    
-    # Extract package
-    echo -e "${BLUE}▶ Extracting files...${NC}"
-    
-    # First, check what's in the archive
-    echo -e "${YELLOW}  Analyzing package contents...${NC}"
-    tar -tzf "${PACKAGE}" > "${TEMP_DIR}/package_contents.txt" 2>&1
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}✗ Cannot read package contents${NC}"
-        exit 1
-    fi
-    
-    # Check if package contains the plugin directory structure
-    if grep -q "${PLUGIN_NAME}/" "${TEMP_DIR}/package_contents.txt"; then
-        echo -e "${GREEN}  Package contains correct directory structure${NC}"
-        # Extract directly
-        tar -xzf "${PACKAGE}" -C / > "${INSTALL_LOG}" 2>&1
-    elif grep -q "^${PLUGIN_NAME}/" "${TEMP_DIR}/package_contents.txt"; then
-        echo -e "${GREEN}  Package contains plugin directory at root${NC}"
-        # Extract to root
-        tar -xzf "${PACKAGE}" -C / > "${INSTALL_LOG}" 2>&1
-    else
-        echo -e "${YELLOW}  Package doesn't contain plugin directory, creating structure...${NC}"
-        # Create temporary extraction directory
-        mkdir -p "${TEMP_DIR}/extract"
-        tar -xzf "${PACKAGE}" -C "${TEMP_DIR}/extract" > "${INSTALL_LOG}" 2>&1
-        
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}✗ Extraction failed${NC}"
-            rm -rf "${TEMP_DIR}/extract"
+    # Download and install
+    if download_and_install "$remote_version"; then
+        # Verify installation
+        if verify_installation; then
+            echo ""
+            echo -e "${GREEN}════════════════════════════════════════${NC}"
+            echo -e "${GREEN}✓ $plugin-$remote_version installed successfully!${NC}"
+            echo -e "${GREEN}════════════════════════════════════════${NC}"
+            touch /tmp/install_success
+        else
+            echo ""
+            echo -e "${RED}════════════════════════════════════════${NC}"
+            echo -e "${RED}✗ Installation verification failed!${NC}"
+            echo -e "${RED}════════════════════════════════════════${NC}"
+            restore_backup
             exit 1
         fi
-        
-        # Move contents to plugin directory
-        mkdir -p "${PLUGIN_DIR}"
-        cp -rf "${TEMP_DIR}/extract"/* "${PLUGIN_DIR}/" 2>/dev/null
-        cp -rf "${TEMP_DIR}/extract"/.[!.]* "${PLUGIN_DIR}/" 2>/dev/null
-        rm -rf "${TEMP_DIR}/extract"
-        echo -e "${GREEN}  ✓ Files organized into plugin directory${NC}"
-    fi
-    
-    # Verify installation
-    if [ ! -d "${PLUGIN_DIR}" ]; then
-        echo -e "${RED}✗ Installation failed - plugin directory not created${NC}"
-        echo -e "${YELLOW}  Expected: ${PLUGIN_DIR}${NC}"
+    else
+        echo ""
+        echo -e "${RED}════════════════════════════════════════${NC}"
+        echo -e "${RED}✗ Installation failed!${NC}"
+        echo -e "${RED}════════════════════════════════════════${NC}"
+        restore_backup
         exit 1
     fi
     
-    # Restore configuration if backup exists
-    if [ -d "${BACKUP_DIR}" ]; then
-        echo -e "${BLUE}▶ Restoring configuration...${NC}"
-        cp -rf "${BACKUP_DIR}"/* "${PLUGIN_DIR}/" 2>/dev/null
-        echo -e "${GREEN}✓ Configuration restored${NC}"
-    fi
+    # Cleanup
+    cleanup
     
-    # Set proper permissions
-    echo -e "${BLUE}▶ Setting permissions...${NC}"
-    chmod -R 755 "${PLUGIN_DIR}" 2>/dev/null
-    find "${PLUGIN_DIR}" -type f -exec chmod 644 {} \; 2>/dev/null
-    find "${PLUGIN_DIR}" -name "*.py" -exec chmod 755 {} \; 2>/dev/null
-    find "${PLUGIN_DIR}" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null
-    find "${PLUGIN_DIR}" -name "*.so" -exec chmod 755 {} \; 2>/dev/null
-    find "${PLUGIN_DIR}" -name "*.bin" -exec chmod 755 {} \; 2>/dev/null
+    # Print success message
+    echo ""
+    print_message "Plugin installed to: $plugin_path"
+    echo ""
     
-    # Run post-installation scripts if exist
-    for script in "postinst" "install.sh" "setup.sh"; do
-        if [ -f "${PLUGIN_DIR}/${script}" ]; then
-            echo -e "${BLUE}▶ Running ${script}...${NC}"
-            chmod 755 "${PLUGIN_DIR}/${script}"
-            cd "${PLUGIN_DIR}" && ./${script}
-        fi
-    done
-    
-    # Check if plugin.py or __init__.py exists
-    if [ ! -f "${PLUGIN_DIR}/plugin.py" ] && [ ! -f "${PLUGIN_DIR}/__init__.py" ]; then
-        echo -e "${YELLOW}⚠ Warning: plugin.py or __init__.py not found${NC}"
-        echo -e "${YELLOW}  The plugin may not work correctly${NC}"
-    fi
-    
-    # Count installed files
-    FILE_COUNT=$(find "${PLUGIN_DIR}" -type f | wc -l)
-    DIR_COUNT=$(find "${PLUGIN_DIR}" -type d | wc -l)
-    echo -e "${GREEN}✓ Installation completed (${FILE_COUNT} files in ${DIR_COUNT} directories)${NC}"
+    # Ask for GUI restart
+    restart_gui
 }
 
-# ==========================================
-# Function: Display completion message
-# ==========================================
-show_completion() {
-    echo ""
-    echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}              ✅ INSTALLATION SUCCESSFUL!                         ${NC}"
-    echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-    echo -e "${WHITE}   Plugin:     ${CYAN}${PLUGIN_NAME}${NC}"
-    echo -e "${WHITE}   Version:    ${CYAN}${VERSION}${NC}"
-    echo -e "${WHITE}   Location:   ${YELLOW}${PLUGIN_DIR}${NC}"
-    echo -e "${WHITE}   Files:      ${YELLOW}$(find ${PLUGIN_DIR} -type f | wc -l) files${NC}"
-    echo -e "${WHITE}   Directories:${YELLOW}$(find ${PLUGIN_DIR} -type d | wc -l) dirs${NC}"
-    echo -e "${WHITE}   Developer:  ${MAGENTA}HAMDY_AHMED${NC}"
-    echo -e "${WHITE}   Facebook:   ${BLUE}https://www.facebook.com/share/g/18qCRuHz26/${NC}"
-    echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-    echo ""
-    
-    # List important files
-    echo -e "${CYAN}📋 Important files:${NC}"
-    if [ -f "${PLUGIN_DIR}/plugin.py" ]; then
-        echo -e "  ${GREEN}✓${NC} plugin.py (main plugin file)"
-    fi
-    if [ -f "${PLUGIN_DIR}/__init__.py" ]; then
-        echo -e "  ${GREEN}✓${NC} __init__.py"
-    fi
-    if [ -f "${PLUGIN_DIR}/setup.xml" ]; then
-        echo -e "  ${GREEN}✓${NC} setup.xml (configuration)"
-    fi
-    echo ""
-    
-    # Show backup info if any
-    if [ -d "${BACKUP_DIR}" ]; then
-        echo -e "${YELLOW}⚠ Backup folder exists at ${BACKUP_DIR}${NC}"
-        echo -e "${WHITE}  You can manually restore files from there if needed${NC}"
-        echo -e "${WHITE}  To restore: cp -rf ${BACKUP_DIR}/* ${PLUGIN_DIR}/${NC}"
-        echo ""
-    fi
-}
-
-# ==============================
-# Function: Restart Enigma2
-# =============================
-restart_enigma2() {
-    echo -e "${YELLOW}═══════════════════════════════${NC}"
-    echo -e "${YELLOW}     🔄 RESTARTING ENIGMA2     ${NC}"
-    echo -e "${YELLOW}═══════════════════════════════${NC}"
-    echo ""
-    echo -e "${WHITE}⏳ Enigma2 will restart in 5 seconds...${NC}"
-    echo ""
-    
-    # Countdown
-    for i in 5 4 3 2 1; do
-        echo -ne "\r${YELLOW}   Restarting in ${i} seconds...${NC} "
-        sleep 1
-    done
-    echo ""
-    
-    echo -e "${BLUE}▶ Restarting Enigma2...${NC}"
-    
-    # Try different methods to restart Enigma2
-    local restarted=false
-    
-    # Method 1: init (most common in Enigma2)
-    if command -v init >/dev/null 2>&1; then
-        echo -e "${BLUE}  📡 Using init method...${NC}"
-        init 4
-        sleep 2
-        init 3
-        restarted=true
-        echo -e "${GREEN}  ✓ Enigma2 restarted successfully using init${NC}"
-    fi
-    
-    # Method 2: systemctl
-    if [ "$restarted" = false ] && command -v systemctl >/dev/null 2>&1; then
-        echo -e "${BLUE}  📡 Using systemctl method...${NC}"
-        systemctl restart enigma2
-        restarted=true
-        echo -e "${GREEN}  ✓ Enigma2 restarted successfully using systemctl${NC}"
-    fi
-    
-    # Method 3: killall
-    if [ "$restarted" = false ] && command -v killall >/dev/null 2>&1; then
-        echo -e "${BLUE}  📡 Using killall method...${NC}"
-        killall enigma2
-        restarted=true
-        echo -e "${GREEN}  ✓ Enigma2 restart initiated using killall${NC}"
-    fi
-    
-    # Method 4: init script
-    if [ "$restarted" = false ] && [ -f "/etc/init.d/enigma2" ]; then
-        echo -e "${BLUE}  📡 Using init script method...${NC}"
-        /etc/init.d/enigma2 restart
-        restarted=true
-        echo -e "${GREEN}  ✓ Enigma2 restarted successfully using init script${NC}"
-    fi
-    
-    # Method 5: wget to webif
-    if [ "$restarted" = false ]; then
-        echo -e "${BLUE}  📡 Trying web interface...${NC}"
-        if command -v wget >/dev/null 2>&1; then
-            wget -qO- "http://127.0.0.1/web/powerstate?newstate=3" >/dev/null 2>&1
-            restarted=true
-            echo -e "${GREEN}  ✓ Enigma2 restart requested via web interface${NC}"
-        elif command -v curl >/dev/null 2>&1; then
-            curl -s "http://127.0.0.1/web/powerstate?newstate=3" >/dev/null 2>&1
-            restarted=true
-            echo -e "${GREEN}  ✓ Enigma2 restart requested via web interface${NC}"
-        fi
-    fi
-    
-    # Method 6: enigma2 restart command
-    if [ "$restarted" = false ] && [ -f "/usr/bin/enigma2" ]; then
-        echo -e "${BLUE}  📡 Using enigma2 restart command...${NC}"
-        /usr/bin/enigma2 --restart >/dev/null 2>&1
-        restarted=true
-        echo -e "${GREEN}  ✓ Enigma2 restart initiated${NC}"
-    fi
-    
-    if [ "$restarted" = false ]; then
-        echo -e "${RED}  ✗ Could not restart Enigma2 automatically${NC}"
-        echo -e "${YELLOW}  ⚠ Please restart Enigma2 manually:${NC}"
-        echo -e "${WHITE}    1. Using remote: Menu → Standby/Restart → Restart Enigma2${NC}"
-        echo -e "${WHITE}    2. Via Telnet: killall enigma2${NC}"
-        echo -e "${WHITE}    3. Via Webif: http://[box-ip]/web/powerstate?newstate=3${NC}"
-    else
-        echo ""
-        echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-        echo -e "${GREEN}              ✅ ENIGMA2 RESTARTED SUCCESSFULLY!                 ${NC}"
-        echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-        echo -e "${WHITE}   The plugin ${CYAN}${PLUGIN_NAME}${WHITE} should now appear in extensions${NC}"
-        echo -e "${WHITE}   Press OK/Blue button to access plugins${NC}"
-        echo -e "${GREEN}══════════════════════════════════════════════════════════════════${NC}"
-    fi
-}
-
-# ===============================
-# Main installation process
-# ===============================
-main() {
-    # Set trap for cleanup
-    trap cleanup EXIT INT TERM
-    
-    # Print banner
-    print_banner
-    
-    # Check requirements
-    check_requirements
-    
-    # Find and download package
-    find_and_download_package
-    
-    # Install package
-    install_package
-    
-    # Show completion message
-    show_completion
-    
-    # Auto restart Enigma2 (no user prompt)
-    restart_enigma2
-    
-    # Final cleanup
-    echo -e "${BLUE}▶ Final cleanup...${NC}"
-    rm -f "${TEMP_DIR}/package_contents.txt" 2>/dev/null
-    
-    echo ""
-    echo -e "${GREEN}══════════════════════════════════════${NC}"
-    echo -e "${GREEN}  🎉 INSTALLATION PROCESS COMPLETED!  ${NC}"
-    echo -e "${GREEN}══════════════════════════════════════${NC}"
-    echo ""
-    echo -e "${MAGENTA}    🎈 Enjoy with plugin! 🎈${NC}"
-    echo -e "${MAGENTA}════════════════════════════${NC}"
-    echo ""
-    
-    exit 0
-}
-
-# =========================
-# Execute main function
-# ========================
+# Run main function
 main "$@"
