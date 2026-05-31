@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 # Script configuration
 PLUGIN_NAME="ip2Sat"
 VERSION="2.0"
-GITHUB_RAW="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main/iptoSat-v2.0"
+GITHUB_RAW="https://raw.githubusercontent.com/Ham-ahmed/ip2/refs/heads/main/iptosat"
 # Try different possible package names
 PACKAGE_NAMES="${PLUGIN_NAME}-${VERSION}.tar.gz ${PLUGIN_NAME}.tar.gz ${PLUGIN_NAME}_${VERSION}.tar.gz plugin.tar.gz"
 TEMP_DIR="/var/volatile/tmp"
