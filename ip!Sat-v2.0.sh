@@ -30,18 +30,33 @@ rm -rf $package >/dev/null 2>&1
 echo ''
 if [ $extract -eq 0 ]; then
 echo "#########################################################"
-echo "#                INSTALLED SUCCESSFULLY                 #"
-echo "#                    ON - Panel v10.9                   #"
+echo "#                 Installation Complete!                #"
+echo "#                  Enjoy with plugin!                   #"
+echo "#                 MagicPanelGold v10.9                  #"
 echo "#             Enigma2 restart is required               #"
 echo "#        .::UPLOADED BY  >>>>   HAMDY_AHMED::.          #"
 echo "#     https://www.facebook.com/share/g/18qCRuHz26/      #"
 echo "#########################################################"
 echo "#           your Device will RESTART Now                #"
 echo "#########################################################"
-sleep 3s
+
+# Countdown 3 seconds
+echo -n "> Restarting in "
+for i in 3 2 1; do
+    echo -n "$i... "
+    sleep 1
+done
+echo ""
+
+# Restart enigma2
+init 4 >/dev/null 2>&1
+sleep 2
+init 3 >/dev/null 2>&1
 
 else
 
 echo "> $plugin-$version package installation failed"
 sleep 3s
 fi
+
+exit 0
